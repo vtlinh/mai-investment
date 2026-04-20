@@ -6,3 +6,4 @@ venv/
 .claude/settings.local.json
 .claude/push_count
 .env
+_audit_list_payload.py
