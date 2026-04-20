@@ -41,7 +41,7 @@ HUD_FMR_URL          = "https://www.huduser.gov/hudapi/public/fmr/statedata/NJ"
 TOP_N = 20
 
 # Monthly Rentcast API call budget. Each unique zip = 1 call.
-RENTCAST_MONTHLY_LIMIT = 50
+RENTCAST_MONTHLY_LIMIT = 10_000
 
 
 def _round_half(v):
