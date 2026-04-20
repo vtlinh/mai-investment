@@ -310,22 +310,28 @@ def _attach_rent_comps(con, properties):
         key = (p["city"], p["bedrooms"] or 0, baths_i)
         buckets[key] = None  # placeholder
 
-    # Fetch comp_ids_json for each bucket (city-specific, then fallback)
-    for key in list(buckets.keys()):
-        city, beds, baths = key
-        row = con.execute(
-            "SELECT comp_ids_json FROM rent_comps WHERE city=? AND bedrooms=? AND baths=?",
-            (city, beds, baths),
-        ).fetchone()
-        if row and row[0]:
-            buckets[key] = json.loads(row[0])
-            continue
-        row = con.execute(
-            "SELECT comp_ids_json FROM rent_comps WHERE city IS NULL AND bedrooms=? AND baths=?",
-            (beds, baths),
-        ).fetchone()
-        if row and row[0]:
-            buckets[key] = json.loads(row[0])
+    # Fetch comp_ids_json for each bucket (city-specific, then fallback).
+    # If the column doesn't exist yet (old DB), silently skip.
+    try:
+        for key in list(buckets.keys()):
+            city, beds, baths = key
+            row = con.execute(
+                "SELECT comp_ids_json FROM rent_comps WHERE city=? AND bedrooms=? AND baths=?",
+                (city, beds, baths),
+            ).fetchone()
+            if row and row[0]:
+                buckets[key] = json.loads(row[0])
+                continue
+            row = con.execute(
+                "SELECT comp_ids_json FROM rent_comps WHERE city IS NULL AND bedrooms=? AND baths=?",
+                (beds, baths),
+            ).fetchone()
+            if row and row[0]:
+                buckets[key] = json.loads(row[0])
+    except Exception:
+        for p in properties:
+            p["rent_comps"] = []
+        return
 
     # Fetch details for all referenced comp IDs in one query
     all_ids = {pid for ids in buckets.values() if ids for pid in ids}
