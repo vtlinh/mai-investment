@@ -110,23 +110,36 @@ def already_in_external(con):
     return {(r[0], r[1], r[2]) for r in rows}
 
 
+def _ensure_call_log(con):
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rentcast_call_log (
+            postal_code TEXT NOT NULL,
+            called_at   TEXT NOT NULL
+        )
+        """
+    )
+
+
 def rentcast_calls_this_month(con):
-    """Count Rentcast API calls already made this calendar month."""
-    import sqlite3
-    try:
-        month = datetime.now(timezone.utc).strftime("%Y-%m")
-        row = con.execute(
-            "SELECT COUNT(DISTINCT postal_code) FROM external_rent_estimates "
-            "WHERE source='rentcast' AND fetched_at LIKE ?",
-            (month + "%",),
-        ).fetchone()
-        return row[0] if row else 0
-    except Exception:
-        return 0
+    """Count every Rentcast API call made this calendar month, including failures."""
+    _ensure_call_log(con)
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    row = con.execute(
+        "SELECT COUNT(*) FROM rentcast_call_log WHERE called_at LIKE ?",
+        (month + "%",),
+    ).fetchone()
+    return row[0] if row else 0
 
 
-def fetch_rentcast_zip(postal_code):
-    """Fetch Rentcast market data for a zip. Returns {beds: median_rent} or {}."""
+def fetch_rentcast_zip(con, postal_code):
+    """Fetch Rentcast market data for a zip. Logs the call regardless of outcome.
+    Returns {beds: median_rent} or {}.
+    """
+    _ensure_call_log(con)
+    now = datetime.now(timezone.utc).isoformat()
+    with con:
+        con.execute("INSERT INTO rentcast_call_log VALUES (?, ?)", (postal_code, now))
     headers = {"X-Api-Key": RENTCAST_KEY}
     try:
         r = requests.get(RENTCAST_MARKETS_URL, headers=headers,
@@ -280,7 +293,7 @@ def main():
 
             zip_data = {}
             for postal_code in zips_to_fetch:
-                by_beds = fetch_rentcast_zip(postal_code)
+                by_beds = fetch_rentcast_zip(con, postal_code)
                 zip_data[postal_code] = by_beds
                 hits = len(by_beds)
                 print(f"  {postal_code}: {hits} bedroom bracket(s) returned")
