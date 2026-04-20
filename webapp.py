@@ -10,7 +10,7 @@ import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 
 from flask import Flask, abort, render_template, request
 
@@ -54,7 +54,7 @@ def get_config(req):
     if not raw:
         return cfg
     try:
-        user = json.loads(raw)
+        user = json.loads(unquote(raw))
     except (ValueError, TypeError):
         return cfg
     for k in cfg:
