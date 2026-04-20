@@ -439,8 +439,7 @@
             status.textContent = "";
           } else {
             container.dataset.nextPage = "0";
-            status.textContent = `${data.total} match${data.total === 1 ? "" : "es"}`;
-            io.disconnect();
+            status.textContent = "You've reached the end";
           }
         } catch (err) {
           status.textContent = "Error loading more: " + err.message;
