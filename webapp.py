@@ -356,6 +356,23 @@ def _attach_rent_comps(con, properties):
     else:
         detail = {}
 
+    # Check which (postal_code, beds, baths) groups have external estimates,
+    # so we can label the source when no local comps exist.
+    ext_sources = {}
+    try:
+        postal_codes = {p["postal_code"] for p in properties if p.get("postal_code")}
+        if postal_codes:
+            ph = ",".join("?" * len(postal_codes))
+            for row in con.execute(
+                f"SELECT postal_code, bedrooms, baths, source FROM external_rent_estimates WHERE postal_code IN ({ph})",
+                list(postal_codes),
+            ).fetchall():
+                ext_sources[(row[0], row[1], row[2])] = row[3]
+    except Exception:
+        pass
+
+    SOURCE_LABELS = {"rentcast": "Rentcast AVM estimate", "hud_fmr": "HUD Fair Market Rent"}
+
     for p in properties:
         seen = set()
         comps = []
@@ -368,6 +385,15 @@ def _attach_rent_comps(con, properties):
                     comps.append(d)
         comps.sort(key=lambda x: x["list_price"] or 0, reverse=True)
         p["rent_comps"] = comps
+        # Attach external source label when no local comps back this property's rent
+        p["rent_source"] = None
+        if not comps and p.get("annual_income") is not None:
+            postal_code = p.get("postal_code")
+            for beds, baths_i in _unit_keys(p):
+                src = ext_sources.get((postal_code, beds, baths_i))
+                if src:
+                    p["rent_source"] = SOURCE_LABELS.get(src, src)
+                    break
 
 
 def fetch_page(con, page, filters, cfg, sort):

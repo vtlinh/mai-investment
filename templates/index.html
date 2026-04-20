@@ -471,12 +471,22 @@
     let _ttHideTimer = null;
     let _ttOpen = false;
 
-    function buildTooltipContent(comps, units) {
+    function buildTooltipContent(comps, units, rentSource) {
       const frag = document.createDocumentFragment();
       const hdr = document.createElement("div");
       hdr.className = "tooltip-header";
-      hdr.textContent = "Rental comps (nearest to median)";
+      hdr.textContent = rentSource ? "Estimated rent" : "Rental comps (nearest to median)";
       frag.appendChild(hdr);
+      if (rentSource) {
+        const src = document.createElement("div");
+        src.className = "tooltip-header";
+        src.style.textTransform = "none";
+        src.style.letterSpacing = "0";
+        src.style.color = "#2563eb";
+        src.textContent = `Source: ${rentSource}`;
+        frag.appendChild(src);
+        return frag;
+      }
       if (units && units > 1) {
         const note = document.createElement("div");
         note.className = "tooltip-header";
@@ -507,9 +517,10 @@
     function showRentTooltip(el) {
       clearTimeout(_ttHideTimer);
       const comps = JSON.parse(el.dataset.comps || "[]");
-      if (!comps.length) return;
+      const rentSource = el.dataset.rentSource || null;
+      if (!comps.length && !rentSource) return;
       const units = parseInt(el.dataset.units || "0", 10);
-      _tt.replaceChildren(buildTooltipContent(comps, units));
+      _tt.replaceChildren(buildTooltipContent(comps, units, rentSource));
       const rect = el.getBoundingClientRect();
       const left = Math.min(rect.left + window.scrollX,
                             window.innerWidth + window.scrollX - 308);

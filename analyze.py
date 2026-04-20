@@ -1,10 +1,10 @@
 """Compute year-1 cash-flow projection for every for-sale property in the DB.
 
 Rental comps are **precomputed by fetch.py** into the `rent_comps` table; this
-script just looks them up by (city, bedrooms, round(baths)), falling back to
-the city=NULL row when a town lacks local samples. For multi-family sales, we
-estimate unit count from bathroom count, split the bedrooms across units, look
-up a per-unit comp, and sum.
+script looks them up by (city, bedrooms, round_half(baths)). When no city-specific
+row exists it falls back to `external_rent_estimates` by postal_code (populated by
+rentcast_fill.py). Properties with no comp data are excluded. For multi-family
+sales, unit count is split, per-unit comps are summed.
 
 Results are written to a `cashflow_analysis` table. Tune the globals below to
 update assumptions.

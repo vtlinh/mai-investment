@@ -27,8 +27,9 @@
         <div class="val">${{ "{:,.0f}".format(p.list_price) }}</div>
       </div>
       <div class="stat stat-rent" data-label="Rent/mo"
-           {% if p.rent_comps %}
+           {% if p.rent_comps or p.rent_source %}
            data-comps='{{ p.rent_comps | tojson }}'
+           {% if p.rent_source %}data-rent-source="{{ p.rent_source }}"{% endif %}
            {% if p.num_units and p.num_units > 1 %}data-units="{{ p.num_units }}"{% endif %}
            onmouseenter="showRentTooltip(this)"
            onmouseleave="scheduleHideTooltip()"

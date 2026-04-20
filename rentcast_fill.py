@@ -263,9 +263,10 @@ def main():
 
     # --- HUD FMR ---
     if HUD_TOKEN and top_gaps:
-        print(f"\nFetching HUD Fair Market Rents for {len(top_gaps)} gaps…")
-        hud_gaps = [k for k in top_gaps if k not in (rentcast_estimates if RENTCAST_KEY else {})]
-        hud_estimates = fetch_hud_fmr(con, top_gaps)
+        already_fetched = rentcast_estimates if RENTCAST_KEY else {}
+        hud_gaps = [k for k in top_gaps if k not in already_fetched]
+        print(f"\nFetching HUD Fair Market Rents for {len(hud_gaps)} gaps…")
+        hud_estimates = fetch_hud_fmr(con, hud_gaps)
         if hud_estimates:
             with con:
                 store_estimates(con, hud_estimates, "hud_fmr")
