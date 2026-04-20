@@ -185,6 +185,7 @@ def parse_filters(args):
         "min_sqft":       _int("min_sqft"),
         "max_sqft":       _int("max_sqft"),
         "q":              (args.get("q") or "").strip(),
+        "no_rent_info":   args.get("no_rent_info") == "1",
     }
 
 
@@ -229,13 +230,15 @@ def build_where(filters):
 
 
 def filter_querystring(filters):
-    """Build a URL querystring from filters (omitting empty values), suitable
-    for appending to a pagination link."""
+    """Build a URL querystring from filters (omitting empty/false values)."""
     parts = []
     for k, v in filters.items():
         if k == "property_types":
             for t in v:
                 parts.append(("property_type", t))
+        elif k == "no_rent_info":
+            if v:
+                parts.append(("no_rent_info", "1"))
         elif v not in (None, "", 0):
             parts.append((k, v))
     return urlencode(parts)
@@ -360,45 +363,73 @@ def _attach_rent_comps(con, properties):
 def fetch_page(con, page, filters, cfg, sort):
     where, params = build_where(filters)
     offset = (page - 1) * PAGE_SIZE
-    total = con.execute(
-        f"SELECT COUNT(*) FROM cashflow_analysis c JOIN properties p USING(property_id) WHERE {where}",
-        params,
-    ).fetchone()[0]
     last_updated = con.execute(
         "SELECT MAX(last_seen_at) FROM properties WHERE is_active=1"
     ).fetchone()[0]
-    sort_key, sort_dir = sort
-    sort_sql = SORT_COLS[sort_key][0]
-    # Always tiebreak by property_id for deterministic paging.
-    rows = con.execute(
-        f"""
-        SELECT p.property_id, p.address_line, p.city, p.state, p.postal_code,
-               p.list_price, p.property_type, p.bedrooms, p.baths_total,
-               p.area_sqft, p.year_built, p.num_units, p.url, p.hoa_fee,
-               p.beds_per_unit_json, p.baths_per_unit_json,
-               c.annual_income, c.mortgage, c.expenses, c.cash_flow,
-               c.cash_on_cash_return
-        FROM cashflow_analysis c JOIN properties p USING(property_id)
-        WHERE {where}
-        ORDER BY {sort_sql} {sort_dir}, p.property_id ASC
-        LIMIT ? OFFSET ?
-        """,
-        params + [PAGE_SIZE, offset],
-    ).fetchall()
-    properties = []
-    holding_years = int(cfg["holding_years"])
-    for r in rows:
-        d = dict(r)
-        d["projection"] = project(d["list_price"], d["annual_income"],
-                                  d["mortgage"], d["hoa_fee"], cfg)
-        d["unit_breakdown"] = unit_breakdown(d)
-        if d["projection"]:
-            sell_roi = d["projection"][-1]["sell_roi"]
-            d["total_roi"] = (1 + sell_roi) ** (1 / holding_years) - 1 if sell_roi > -1 else -1
-        else:
-            d["total_roi"] = None
-        properties.append(d)
-    _attach_rent_comps(con, properties)
+
+    if filters.get("no_rent_info"):
+        # Properties with no city-specific rent comp (absent from cashflow_analysis)
+        total = con.execute(
+            f"""SELECT COUNT(*) FROM properties p
+                LEFT JOIN cashflow_analysis c USING(property_id)
+                WHERE {where} AND p.status='for_sale' AND c.property_id IS NULL""",
+            params,
+        ).fetchone()[0]
+        rows = con.execute(
+            f"""SELECT p.property_id, p.address_line, p.city, p.state, p.postal_code,
+                       p.list_price, p.property_type, p.bedrooms, p.baths_total,
+                       p.area_sqft, p.year_built, p.num_units, p.url, p.hoa_fee,
+                       p.beds_per_unit_json, p.baths_per_unit_json
+                FROM properties p
+                LEFT JOIN cashflow_analysis c USING(property_id)
+                WHERE {where} AND p.status='for_sale' AND c.property_id IS NULL
+                ORDER BY p.list_price ASC, p.property_id ASC
+                LIMIT ? OFFSET ?""",
+            params + [PAGE_SIZE, offset],
+        ).fetchall()
+        properties = []
+        for r in rows:
+            d = dict(r)
+            d.update(annual_income=None, mortgage=None, expenses=None,
+                     cash_flow=None, cash_on_cash_return=None,
+                     total_roi=None, projection=[], rent_comps=[])
+            d["unit_breakdown"] = unit_breakdown(d)
+            properties.append(d)
+    else:
+        sort_key, sort_dir = sort
+        sort_sql = SORT_COLS[sort_key][0]
+        total = con.execute(
+            f"SELECT COUNT(*) FROM cashflow_analysis c JOIN properties p USING(property_id) WHERE {where}",
+            params,
+        ).fetchone()[0]
+        rows = con.execute(
+            f"""SELECT p.property_id, p.address_line, p.city, p.state, p.postal_code,
+                       p.list_price, p.property_type, p.bedrooms, p.baths_total,
+                       p.area_sqft, p.year_built, p.num_units, p.url, p.hoa_fee,
+                       p.beds_per_unit_json, p.baths_per_unit_json,
+                       c.annual_income, c.mortgage, c.expenses, c.cash_flow,
+                       c.cash_on_cash_return
+                FROM cashflow_analysis c JOIN properties p USING(property_id)
+                WHERE {where}
+                ORDER BY {sort_sql} {sort_dir}, p.property_id ASC
+                LIMIT ? OFFSET ?""",
+            params + [PAGE_SIZE, offset],
+        ).fetchall()
+        holding_years = int(cfg["holding_years"])
+        properties = []
+        for r in rows:
+            d = dict(r)
+            d["projection"] = project(d["list_price"], d["annual_income"],
+                                      d["mortgage"], d["hoa_fee"], cfg)
+            d["unit_breakdown"] = unit_breakdown(d)
+            if d["projection"]:
+                sell_roi = d["projection"][-1]["sell_roi"]
+                d["total_roi"] = (1 + sell_roi) ** (1 / holding_years) - 1 if sell_roi > -1 else -1
+            else:
+                d["total_roi"] = None
+            properties.append(d)
+        _attach_rent_comps(con, properties)
+
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     return properties, total, pages, last_updated
 
@@ -421,6 +452,15 @@ def index():
             "ORDER BY property_type"
         ).fetchall()
     ]
+    no_rent_count = con.execute(
+        """SELECT COUNT(*) FROM properties p
+           LEFT JOIN cashflow_analysis c USING(property_id)
+           WHERE p.is_active=1 AND p.is_pending=0 AND p.is_contingent=0
+             AND p.status='for_sale'
+             AND p.list_price IS NOT NULL AND p.list_price >= 200000
+             AND p.address_line IS NOT NULL AND TRIM(p.address_line) != ''
+             AND c.property_id IS NULL"""
+    ).fetchone()[0]
     con.close()
     if page > pages and total > 0:
         abort(404)
@@ -448,6 +488,7 @@ def index():
         config_groups=CONFIG_GROUPS,
         headers=build_headers(sort, filter_querystring(filters)),
         sort_qs=f"sort={sort[0]}&dir={sort[1].lower()}",
+        no_rent_count=no_rent_count,
     )
 
 

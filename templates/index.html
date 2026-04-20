@@ -248,7 +248,8 @@
   {% set filter_active = filters.property_types or (filters.min_units or 1)|int > 1
        or (filters.min_bedrooms or 1)|int > 1 or (filters.min_baths or 1)|int > 1
        or filters.min_price or filters.max_price
-       or filters.min_sqft or filters.max_sqft or filters.q %}
+       or filters.min_sqft or filters.max_sqft or filters.q
+       or filters.no_rent_info %}
   <form class="filters" method="get">
     <div class="filter-header" id="filter-header"
          aria-expanded="{{ 'true' if filter_active else 'false' }}"
@@ -317,6 +318,15 @@
           <input type="text" name="q" placeholder="address, city, ZIP, agent…"
             value="{{ filters.q or '' }}">
         </div>
+      </div>
+
+      <div class="filter-row" style="margin-top:0.25rem">
+        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.9rem">
+          <input type="checkbox" name="no_rent_info" value="1"
+            {{ 'checked' if filters.no_rent_info }}>
+          No local rental data
+          <span style="color:#888;font-size:0.8rem">({{ no_rent_count }} properties)</span>
+        </label>
       </div>
 
       <div class="filter-actions">
@@ -412,28 +422,30 @@
              onmouseleave="scheduleHideTooltip()"
              onclick="toggleRentTooltip(this)"
              {% endif %}>
-          <div class="val">${{ "{:,.0f}".format(p.annual_income / 12) }}</div>
+          <div class="val">{% if p.annual_income is not none %}${{ "{:,.0f}".format(p.annual_income / 12) }}{% else %}<span style="color:#888">—</span>{% endif %}</div>
         </div>
         <div class="stat" data-label="Cashflow">
-          <div class="val {{ 'coc-positive' if p.cash_flow > 0 else 'coc-negative' }}">
-            ${{ "{:,.0f}".format(p.cash_flow) }}
+          <div class="val {% if p.cash_flow is not none %}{{ 'coc-positive' if p.cash_flow > 0 else 'coc-negative' }}{% endif %}">
+            {% if p.cash_flow is not none %}${{ "{:,.0f}".format(p.cash_flow) }}{% else %}<span style="color:#888">—</span>{% endif %}
           </div>
         </div>
         <div class="stat" data-label="CoC">
-          <div class="val {{ 'coc-positive' if p.cash_on_cash_return > 0 else 'coc-negative' }}">
-            {{ "%.1f"|format(p.cash_on_cash_return * 100) }}%
+          <div class="val {% if p.cash_on_cash_return is not none %}{{ 'coc-positive' if p.cash_on_cash_return > 0 else 'coc-negative' }}{% endif %}">
+            {% if p.cash_on_cash_return is not none %}{{ "%.1f"|format(p.cash_on_cash_return * 100) }}%{% else %}<span style="color:#888">—</span>{% endif %}
           </div>
         </div>
         <div class="stat" data-label="15y ROI">
           <div class="val {{ 'coc-positive' if p.total_roi and p.total_roi > 0 else 'coc-negative' }}">
-            {% if p.total_roi is not none %}{{ "%.0f"|format(p.total_roi * 100) }}%{% else %}—{% endif %}
+            {% if p.total_roi is not none %}{{ "%.0f"|format(p.total_roi * 100) }}%{% else %}<span style="color:#888">—</span>{% endif %}
           </div>
         </div>
       </div>
+      {% if p.annual_income is not none %}
       <button class="chevron" type="button"
               aria-expanded="false"
               aria-controls="proj-{{ p.property_id }}"
               onclick="toggle(this)">&#x25BC;</button>
+      {% endif %}
     </div>
     <div class="projection" id="proj-{{ p.property_id }}">
       <table>

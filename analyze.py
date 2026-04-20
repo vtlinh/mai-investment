@@ -112,9 +112,9 @@ def total_roi(list_price, year1_rent, year1_mortgage, year1_components, cfg):
 
 
 def comp_rent(conn, beds, baths, city):
-    """Look up cached median rent for (city, beds, round(baths)). Falls back
-    to the city=NULL row for the same (beds, baths) bucket if the town has no
-    local cache entry.
+    """Look up cached median rent for (city, beds, round(baths)).
+    Returns None if no city-specific bucket exists — no county-wide fallback,
+    so properties without local comps are excluded from cashflow_analysis.
     """
     if beds is None:
         return None
@@ -122,12 +122,6 @@ def comp_rent(conn, beds, baths, city):
     row = conn.execute(
         "SELECT median_rent FROM rent_comps WHERE city=? AND bedrooms=? AND baths=?",
         (city, beds, baths_i),
-    ).fetchone()
-    if row:
-        return row[0]
-    row = conn.execute(
-        "SELECT median_rent FROM rent_comps WHERE city IS NULL AND bedrooms=? AND baths=?",
-        (beds, baths_i),
     ).fetchone()
     return row[0] if row else None
 
