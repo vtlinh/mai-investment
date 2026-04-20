@@ -237,6 +237,11 @@ def analyze(conn, cfg=None):
             rent_estimate REAL NOT NULL, source TEXT NOT NULL, fetched_at TEXT NOT NULL,
             PRIMARY KEY (postal_code, bedrooms, baths, source))"""
     )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS zip_demographics (
+            postal_code TEXT PRIMARY KEY, median_household_income INTEGER,
+            poverty_rate REAL, fetched_at TEXT NOT NULL)"""
+    )
     cols = {r[1] for r in conn.execute("PRAGMA table_info(properties)")}
     extras = [c for c in ("num_units", "beds_per_unit_json", "baths_per_unit_json") if c in cols]
     extras_sql = (", " + ", ".join(extras)) if extras else ""

@@ -186,6 +186,7 @@ def parse_filters(args):
         "max_sqft":       _int("max_sqft"),
         "q":              (args.get("q") or "").strip(),
         "no_rent_info":   args.get("no_rent_info") == "1",
+        "hide_ghetto":    args.get("hide_ghetto") == "1",
     }
 
 
@@ -226,6 +227,12 @@ def build_where(filters):
             "OR p.state LIKE ? OR p.agent_name LIKE ? OR p.office_name LIKE ?)"
         )
         params.extend([like] * 6)
+    if filters.get("hide_ghetto"):
+        clauses.append(
+            "p.postal_code NOT IN ("
+            "  SELECT postal_code FROM zip_demographics"
+            "  WHERE median_household_income < 50000 OR poverty_rate > 0.20)"
+        )
     return " AND ".join(clauses), params
 
 
@@ -236,9 +243,9 @@ def filter_querystring(filters):
         if k == "property_types":
             for t in v:
                 parts.append(("property_type", t))
-        elif k == "no_rent_info":
+        elif k in ("no_rent_info", "hide_ghetto"):
             if v:
-                parts.append(("no_rent_info", "1"))
+                parts.append((k, "1"))
         elif v not in (None, "", 0):
             parts.append((k, v))
     return urlencode(parts)
@@ -508,6 +515,14 @@ def index():
              AND p.address_line IS NOT NULL AND TRIM(p.address_line) != ''
              AND c.property_id IS NULL"""
     ).fetchone()[0]
+    ghetto_count = con.execute(
+        f"""SELECT COUNT(*) FROM cashflow_analysis c JOIN properties p USING(property_id)
+            WHERE p.is_active=1 AND p.is_pending=0 AND p.is_contingent=0
+              AND p.address_line IS NOT NULL AND TRIM(p.address_line) != ''
+              AND p.postal_code IN (
+                SELECT postal_code FROM zip_demographics
+                WHERE median_household_income < 50000 OR poverty_rate > 0.20)"""
+    ).fetchone()[0]
     con.close()
     if page > pages and total > 0:
         abort(404)
@@ -536,6 +551,7 @@ def index():
         headers=build_headers(sort, filter_querystring(filters)),
         sort_qs=f"sort={sort[0]}&dir={sort[1].lower()}",
         no_rent_count=no_rent_count,
+        ghetto_count=ghetto_count,
     )
 
 
