@@ -100,6 +100,17 @@
                       margin-top: 0.85rem; }
     .filters:has(.filter-expanded[data-open="1"]) .top-apply { display: none; }
     .filter-expanded > .filter-row:first-child { margin-top: 0.5rem; }
+    .filter-header { display: flex; align-items: center; gap: 0.5rem;
+                     cursor: pointer; user-select: none; }
+    .filter-header h3 { margin: 0; font-size: 0.9rem; text-transform: uppercase;
+                        letter-spacing: 0.04em; color: #888; font-weight: 600; flex: 1; }
+    .filter-header .caret { color: #888; font-size: 0.8rem; transition: transform 0.15s; }
+    .filter-header[aria-expanded="true"] .caret { transform: rotate(180deg); }
+    .filter-body { display: none; margin-top: 1rem; }
+    .filter-body[data-open="1"] { display: block; }
+    .filter select { padding: 0.35rem 0.5rem; border: 1px solid #ccc;
+                     border-radius: 4px; font: inherit; box-sizing: border-box;
+                     background: canvas; color: inherit; height: 2rem; cursor: pointer; }
     .settings { border: 1px solid #ddd; border-radius: 8px; padding: 1rem;
                 margin-bottom: 1.5rem; background: canvas; }
     .settings-header { display: flex; align-items: center; gap: 0.5rem;
@@ -171,10 +182,11 @@
     .reset-link { color: #666; font-size: 0.9rem; text-decoration: none; }
     .reset-link:hover { text-decoration: underline; }
     .match-count { align-self: center; line-height: 2rem; }
-    .projection { overflow-x: auto; }
     @media (max-width: 640px) {
       body { margin: 1rem auto; }
       h1 { font-size: 1.4rem; }
+
+      /* Cards */
       .row { flex-wrap: wrap; padding: 0.75rem; gap: 0.5rem; }
       .info { flex-basis: calc(100% - 3rem); }
       .stats { flex-basis: 100%;
@@ -188,15 +200,26 @@
         color: #888; letter-spacing: 0.04em; font-weight: 600;
       }
       .chevron { margin-left: auto; }
-      .filters > .filter-row { flex-wrap: wrap; }
-      .filter input[type="text"] { width: 100%; }
-      .settings-grid { grid-template-columns: 1fr; gap: 1rem; }
-      .settings-grid .field-cell,
-      .settings-grid .field-cell.pair { grid-column: span 1; }
+
+      /* Projection table — hide less-critical columns, no scroll */
+      .projection { overflow: hidden; }
+      .proj-col-principal, .proj-col-interest,
+      .proj-col-tax, .proj-col-expenses,
+      .proj-col-annual-roi { display: none; }
+      table { width: 100%; font-size: 0.8rem; }
+      th, td { padding: 0.3rem 0.4rem; }
+
+      /* Filters */
+      .filter-row { flex-wrap: wrap; }
+      .filter input[type="text"] { width: 100%; max-width: 100%; }
+      .filter .range input { width: 5rem; }
+
+      /* Settings grid — 2 cols, pairs wrap into column */
+      .settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 0.75rem; }
+      .settings-grid .field-cell.pair { grid-column: span 2; flex-wrap: wrap; gap: 1rem 0.75rem; }
       .settings-grid .input-row { width: 100%; }
+
       .pager a { padding: 0.5rem 0.7rem; }
-      table { font-size: 0.75rem; }
-      th, td { padding: 0.3rem 0.35rem; }
     }
   </style>
 </head>
@@ -204,59 +227,54 @@
   <h1>Investment properties</h1>
   <p class="meta">Database updated on {{ last_updated or "—" }}</p>
 
-  {% set has_expanded_filter = filters.min_price or filters.max_price
+  {% set filter_active = filters.property_types or (filters.min_units or 1)|int > 1
+       or (filters.min_bedrooms or 1)|int > 1 or (filters.min_baths or 1)|int > 1
+       or filters.min_price or filters.max_price
        or filters.min_sqft or filters.max_sqft or filters.q %}
   <form class="filters" method="get">
-    <div class="filter-row">
-      <div class="filter ptype-dropdown">
-        <label class="field-label">Property type</label>
-        <button type="button" class="ptype-toggle" onclick="togglePtypeDropdown(event)">
-          <span class="ptype-label">
-            {% if filters.property_types %}{{ filters.property_types | length }} selected{% else %}Any type{% endif %}
-          </span>
-          <span class="caret">&#x25BC;</span>
-        </button>
-        <div class="ptype-menu">
-          {% for t in property_types %}
-          <label><input type="checkbox" name="property_type" value="{{ t }}"
-            {% if t in filters.property_types %}checked{% endif %}>
-            {{ t.replace("_", " ") }}</label>
-          {% endfor %}
-        </div>
-      </div>
-      <div class="filter">
-        <div class="stepper-row">
-          {% for fname, label in [('min_units','Units'), ('min_bedrooms','Bedrooms'), ('min_baths','Bathrooms')] %}
-          <div>
-            <label class="field-label">{{ label }}</label>
-            <div class="stepper">
-              <input type="number" name="{{ fname }}" min="1" step="1"
-                value="{{ filters[fname] or 1 }}" readonly
-                onkeydown="event.preventDefault()" onpaste="event.preventDefault()">
-              <span class="plus">+</span>
-              <div class="chevrons">
-                <button type="button" tabindex="-1" aria-label="Increase"
-                        onclick="stepInput(this, 1)">&#x25B2;</button>
-                <button type="button" tabindex="-1" aria-label="Decrease"
-                        onclick="stepInput(this, -1)">&#x25BC;</button>
-              </div>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-      <button type="submit" class="top-apply">Apply</button>
-      <span class="match-count">
+    <div class="filter-header" id="filter-header"
+         aria-expanded="{{ 'true' if filter_active else 'false' }}"
+         onclick="toggleFilter()">
+      <h3>Filters
+        {%- if filter_active %} <span style="color:#2563eb;font-size:0.75rem;text-transform:none;letter-spacing:0">● active</span>{% endif %}
+      </h3>
+      <span class="match-count" style="font-size:0.85rem;color:#888">
         {{ total }} match{{ "es" if total != 1 else "" }}
       </span>
-      <button type="button" class="expand-toggle" id="expand-toggle"
-              aria-expanded="{{ 'true' if has_expanded_filter else 'false' }}"
-              aria-controls="filter-expanded"
-              onclick="toggleExpand()">&#x25BC;</button>
+      <span class="caret">&#x25BC;</span>
     </div>
 
-    <div class="filter-expanded" id="filter-expanded"
-         data-open="{{ '1' if has_expanded_filter else '0' }}">
+    <div class="filter-body" id="filter-body"
+         data-open="{{ '1' if filter_active else '0' }}">
+      <div class="filter-row" style="margin-top:0.5rem">
+        <div class="filter ptype-dropdown">
+          <label class="field-label">Property type</label>
+          <button type="button" class="ptype-toggle" onclick="togglePtypeDropdown(event)">
+            <span class="ptype-label">
+              {% if filters.property_types %}{{ filters.property_types | length }} selected{% else %}Any type{% endif %}
+            </span>
+            <span class="caret">&#x25BC;</span>
+          </button>
+          <div class="ptype-menu">
+            {% for t in property_types %}
+            <label><input type="checkbox" name="property_type" value="{{ t }}"
+              {% if t in filters.property_types %}checked{% endif %}>
+              {{ t.replace("_", " ") }}</label>
+            {% endfor %}
+          </div>
+        </div>
+        {% for fname, label in [('min_units','Units'), ('min_bedrooms','Bedrooms'), ('min_baths','Bathrooms')] %}
+        <div class="filter">
+          <label class="field-label">{{ label }}</label>
+          <select name="{{ fname }}">
+            {% for n in range(1, 11) %}
+            <option value="{{ n }}" {{ 'selected' if (filters[fname] or 1)|int == n }}>{{ n }}+</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+      </div>
+
       <div class="filter-row">
         <div class="filter">
           <label class="field-label">Price ($)</label>
@@ -276,20 +294,18 @@
               value="{{ filters.max_sqft or '' }}">
           </div>
         </div>
-      </div>
-      <div class="filter-row">
         <div class="filter">
           <label class="field-label">Search</label>
           <input type="text" name="q" placeholder="address, city, ZIP, agent…"
             value="{{ filters.q or '' }}">
         </div>
       </div>
+
       <div class="filter-actions">
         <button type="submit">Apply</button>
         <a href="/" class="reset-link">Reset</a>
       </div>
     </div>
-
   </form>
 
   <div class="settings">
@@ -400,16 +416,16 @@
         <thead>
           <tr>
             <th>Year</th>
-            <th>Property value</th>
+            <th>Value</th>
             <th>Rent</th>
-            <th>Principal</th>
-            <th>Interest</th>
-            <th>Tax</th>
-            <th>Expenses</th>
+            <th class="proj-col-principal">Principal</th>
+            <th class="proj-col-interest">Interest</th>
+            <th class="proj-col-tax">Tax</th>
+            <th class="proj-col-expenses">Expenses</th>
             <th>Cash flow</th>
             <th>CoC</th>
-            <th>Annual ROI</th>
-            <th>Sell ROI (8% cost)</th>
+            <th class="proj-col-annual-roi">Annual ROI</th>
+            <th>Sell ROI</th>
           </tr>
         </thead>
         <tbody>
@@ -418,17 +434,17 @@
             <td>{{ y.year }}</td>
             <td>${{ "{:,.0f}".format(y.value) }}</td>
             <td>${{ "{:,.0f}".format(y.rent) }}</td>
-            <td>${{ "{:,.0f}".format(y.principal) }}</td>
-            <td>${{ "{:,.0f}".format(y.interest) }}</td>
-            <td>${{ "{:,.0f}".format(y.tax) }}</td>
-            <td>${{ "{:,.0f}".format(y.expenses) }}</td>
+            <td class="proj-col-principal">${{ "{:,.0f}".format(y.principal) }}</td>
+            <td class="proj-col-interest">${{ "{:,.0f}".format(y.interest) }}</td>
+            <td class="proj-col-tax">${{ "{:,.0f}".format(y.tax) }}</td>
+            <td class="proj-col-expenses">${{ "{:,.0f}".format(y.expenses) }}</td>
             <td class="{{ 'coc-positive' if y.cash_flow > 0 else 'coc-negative' }}">
               ${{ "{:,.0f}".format(y.cash_flow) }}
             </td>
             <td class="{{ 'coc-positive' if y.coc > 0 else 'coc-negative' }}">
               {{ "%.1f"|format(y.coc * 100) }}%
             </td>
-            <td class="{{ 'coc-positive' if y.annual_roi > 0 else 'coc-negative' }}">
+            <td class="proj-col-annual-roi {{ 'coc-positive' if y.annual_roi > 0 else 'coc-negative' }}">
               {{ "%.1f"|format(y.annual_roi * 100) }}%
             </td>
             <td class="{{ 'coc-positive' if y.sell_roi > 0 else 'coc-negative' }}">
@@ -459,12 +475,6 @@
       btn.setAttribute("aria-expanded", open ? "false" : "true");
       panel.dataset.open = open ? "0" : "1";
     }
-    function stepInput(btn, delta) {
-      const input = btn.closest(".stepper").querySelector("input");
-      const v = parseInt(input.value || "1", 10);
-      const min = parseInt(input.min || "1", 10);
-      input.value = Math.max(min, v + delta);
-    }
     function togglePtypeDropdown(e) {
       e.stopPropagation();
       const menu = document.querySelector(".ptype-menu");
@@ -484,26 +494,13 @@
           n ? `${n} selected` : "Any type";
       });
     });
-    function toggleExpand() {
-      const btn = document.getElementById("expand-toggle");
-      const panel = document.getElementById("filter-expanded");
-      const open = btn.getAttribute("aria-expanded") === "true";
-      btn.setAttribute("aria-expanded", open ? "false" : "true");
-      panel.dataset.open = open ? "0" : "1";
-      try { localStorage.setItem("filterExpanded", open ? "0" : "1"); } catch {}
+    function toggleFilter() {
+      const head = document.getElementById("filter-header");
+      const body = document.getElementById("filter-body");
+      const open = head.getAttribute("aria-expanded") === "true";
+      head.setAttribute("aria-expanded", open ? "false" : "true");
+      body.dataset.open = open ? "0" : "1";
     }
-    // Restore expanded state from localStorage if no expanded-only filter is set.
-    try {
-      const panel = document.getElementById("filter-expanded");
-      const btn = document.getElementById("expand-toggle");
-      if (panel.dataset.open !== "1") {
-        const saved = localStorage.getItem("filterExpanded");
-        if (saved === "1") {
-          panel.dataset.open = "1";
-          btn.setAttribute("aria-expanded", "true");
-        }
-      }
-    } catch {}
 
     // ---- Calculation settings -------------------------------------------
     const COOKIE_NAME = "calc_config";
