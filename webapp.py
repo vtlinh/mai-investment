@@ -97,6 +97,35 @@ def unit_breakdown(row):
     return [f"{b}bd/{_fmt_baths(ba)}ba" for b, ba in zip(beds, baths)]
 
 
+def irr(flows):
+    """Solve for the discount rate that makes NPV of `flows` zero (IRR).
+    Returns None if no rate in (-0.99, 10) brackets a sign change.
+    """
+    def npv(r):
+        s = 0.0
+        for t, cf in enumerate(flows):
+            s += cf / (1 + r) ** t
+        return s
+    lo, hi = -0.99, 10.0
+    flo, fhi = npv(lo), npv(hi)
+    if flo == 0:
+        return lo
+    if fhi == 0:
+        return hi
+    if flo * fhi > 0:
+        return None
+    for _ in range(80):
+        mid = (lo + hi) / 2
+        fm = npv(mid)
+        if abs(fm) < 1e-7 or (hi - lo) < 1e-8:
+            return mid
+        if flo * fm < 0:
+            hi, fhi = mid, fm
+        else:
+            lo, flo = mid, fm
+    return (lo + hi) / 2
+
+
 def project(list_price, year1_rent, year1_mortgage, hoa_fee, cfg):
     """Return a list of per-year dicts for years 1..cfg['holding_years'].
 
@@ -122,6 +151,7 @@ def project(list_price, year1_rent, year1_mortgage, hoa_fee, cfg):
 
     out = []
     cumulative_cash = 0.0
+    operating_flows = []
     for y in range(1, holding_years + 1):
         e      = y - 1
         rent   = year1_rent * (1 + cfg["rent_growth"])        ** e
@@ -143,14 +173,16 @@ def project(list_price, year1_rent, year1_mortgage, hoa_fee, cfg):
 
         cash = rent - principal_paid - interest_paid - tax - other
         cumulative_cash += cash
+        operating_flows.append(cash)
 
-        prev_value   = list_price * (1 + value_growth) ** e
         value        = list_price * (1 + value_growth) ** y
-        appreciation = value - prev_value
-        equity_gain  = appreciation + principal_paid
-
         net_sale     = value * (1 - sell_cost) - loan_balance
         total_profit = cumulative_cash + net_sale - upfront_cash
+
+        # IRR assuming sale at end of year y: outflow at t=0, operating
+        # cash in years 1..y-1, and operating cash + sale proceeds in year y.
+        flows = [-upfront_cash] + operating_flows[:-1] + [operating_flows[-1] + net_sale]
+        year_irr = irr(flows) if upfront_cash else None
 
         out.append({
             "year":       y,
@@ -162,7 +194,7 @@ def project(list_price, year1_rent, year1_mortgage, hoa_fee, cfg):
             "expenses":   other,
             "cash_flow":  cash,
             "coc":        cash / upfront_cash if upfront_cash else 0,
-            "annual_roi": (cash + equity_gain) / upfront_cash if upfront_cash else 0,
+            "annual_roi": year_irr if year_irr is not None else 0,
             "sell_roi":   total_profit / upfront_cash if upfront_cash else 0,
         })
     return out
@@ -460,7 +492,6 @@ def fetch_page(con, page, filters, cfg, sort):
                 LIMIT ? OFFSET ?""",
             params + [PAGE_SIZE, offset],
         ).fetchall()
-        holding_years = int(cfg["holding_years"])
         properties = []
         for r in rows:
             d = dict(r)
@@ -468,8 +499,7 @@ def fetch_page(con, page, filters, cfg, sort):
                                       d["mortgage"], d["hoa_fee"], cfg)
             d["unit_breakdown"] = unit_breakdown(d)
             if d["projection"]:
-                sell_roi = d["projection"][-1]["sell_roi"]
-                d["total_roi"] = (1 + sell_roi) ** (1 / holding_years) - 1 if sell_roi > -1 else -1
+                d["total_roi"] = d["projection"][-1]["annual_roi"]
             else:
                 d["total_roi"] = None
             properties.append(d)
