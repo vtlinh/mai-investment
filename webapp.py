@@ -270,9 +270,20 @@ def build_where(filters):
         params.extend([like] * 6)
     if filters.get("hide_ghetto"):
         clauses.append(
-            "p.postal_code NOT IN ("
-            "  SELECT postal_code FROM zip_demographics"
-            "  WHERE median_household_income < 50000 OR poverty_rate > 0.20)"
+            # Use tract-level demographics when available (more granular),
+            # fall back to zip-level. Two-tier threshold: hard <$50k income,
+            # soft <$70k income AND >15% poverty.
+            "NOT ("
+            "  (p.tract_fips IS NOT NULL AND p.tract_fips IN ("
+            "    SELECT tract_fips FROM tract_demographics"
+            "    WHERE median_household_income < 50000"
+            "       OR (median_household_income < 70000 AND poverty_rate > 0.15)))"
+            "  OR"
+            "  (p.tract_fips IS NULL AND p.postal_code IN ("
+            "    SELECT postal_code FROM zip_demographics"
+            "    WHERE median_household_income < 50000"
+            "       OR (median_household_income < 70000 AND poverty_rate > 0.15)))"
+            ")"
         )
     return " AND ".join(clauses), params
 
@@ -528,6 +539,11 @@ def index():
     cfg = get_config(request)
     sort = parse_sort(request.args)
     con = get_conn()
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS tract_demographics (
+            tract_fips TEXT PRIMARY KEY, median_household_income INTEGER,
+            poverty_rate REAL, fetched_at TEXT NOT NULL)"""
+    )
     properties, total, pages, last_updated = fetch_page(con, page, filters, cfg, sort)
     if request.args.get("partial") == "1":
         html = render_template(
@@ -558,9 +574,17 @@ def index():
         f"""SELECT COUNT(*) FROM cashflow_analysis c JOIN properties p USING(property_id)
             WHERE p.is_active=1 AND p.is_pending=0 AND p.is_contingent=0
               AND p.address_line IS NOT NULL AND TRIM(p.address_line) != ''
-              AND p.postal_code IN (
-                SELECT postal_code FROM zip_demographics
-                WHERE median_household_income < 50000 OR poverty_rate > 0.20)"""
+              AND (
+                (p.tract_fips IS NOT NULL AND p.tract_fips IN (
+                  SELECT tract_fips FROM tract_demographics
+                  WHERE median_household_income < 50000
+                     OR (median_household_income < 70000 AND poverty_rate > 0.15)))
+                OR
+                (p.tract_fips IS NULL AND p.postal_code IN (
+                  SELECT postal_code FROM zip_demographics
+                  WHERE median_household_income < 50000
+                     OR (median_household_income < 70000 AND poverty_rate > 0.15)))
+              )"""
     ).fetchone()[0]
     con.close()
     if page > pages and total > 0:

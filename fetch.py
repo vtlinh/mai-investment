@@ -141,6 +141,8 @@ _MIGRATION_COLUMNS = [
     ("is_pending",            "INTEGER"),
     ("is_contingent",         "INTEGER"),
     ("url",                   "TEXT"),
+    ("hoa_fee",               "INTEGER"),
+    ("tract_fips",            "TEXT"),
 ]
 
 # UPSERT preserves detail-derived columns (num_units, *_per_unit_json,
