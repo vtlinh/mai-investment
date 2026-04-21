@@ -235,6 +235,10 @@ def store_estimates(con, estimates, source):
 
 
 def main():
+    if os.environ.get("RENTCAST_FILL_ENABLE") != "1":
+        raise SystemExit(
+            "rentcast_fill.py is disabled. Set RENTCAST_FILL_ENABLE=1 to run it."
+        )
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
 

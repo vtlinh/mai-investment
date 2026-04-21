@@ -20,10 +20,11 @@
     .info a:hover .addr { text-decoration: underline; }
     .addr { font-weight: 600; }
     .sub { font-size: 0.85rem; color: #666; margin-top: 0.1rem; }
-    .tag-low-income { display: inline-block; margin-top: 0.25rem;
+    .tag-low-income, .tag-has-hoa { display: inline-block; margin-top: 0.25rem;
                       font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em;
-                      color: #b45309; background: #fef3c7; border: 1px solid #fcd34d;
-                      border-radius: 3px; padding: 0.05rem 0.35rem; }
+                      border-radius: 3px; padding: 0.05rem 0.35rem; margin-right: 0.35rem; }
+    .tag-low-income { color: #b45309; background: #fef3c7; border: 1px solid #fcd34d; }
+    .tag-has-hoa { color: #1d4ed8; background: #dbeafe; border: 1px solid #93c5fd; }
     .stats { display: grid;
              grid-template-columns: 4.5rem 3.5rem 4.5rem 3rem 3rem;
              gap: 0 1rem; font-size: 0.9rem; text-align: right; }
@@ -263,7 +264,8 @@
        or filters.min_price or filters.max_price
        or filters.min_sqft or filters.max_sqft or filters.q
        or filters.min_hoa or filters.max_hoa or filters.no_hoa
-       or filters.no_rent_info or filters.hide_ghetto %}
+       or filters.no_rent_info
+       or not filters.hide_ghetto or not filters.hide_few_photos %}
   <form class="filters" method="get">
     <div class="filter-header" id="filter-header"
          aria-expanded="{{ 'true' if filter_active else 'false' }}"
@@ -318,22 +320,22 @@
               value="{{ filters.max_price or '' }}">
           </div>
         </div>
-      </div>
-      <div class="filter-row">
         <div class="filter">
           <label class="field-label">HOA ($/mo)</label>
-          <div class="range">
-            <input type="number" name="min_hoa" min="0" placeholder="min"
-              class="hoa-input"
-              value="{{ filters.min_hoa if filters.min_hoa is not none else '' }}"
-              {{ 'disabled' if filters.no_hoa }}>
-            <input type="number" name="max_hoa" min="0" placeholder="max"
-              class="hoa-input"
-              value="{{ filters.max_hoa if filters.max_hoa is not none else '' }}"
-              {{ 'disabled' if filters.no_hoa }}>
-            <label style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;font-size:0.85rem;color:#666;margin-left:0.5rem">
+          <div style="display:flex;align-items:center;gap:16px">
+            <div class="range">
+              <input type="number" name="min_hoa" min="0" placeholder="min"
+                class="hoa-input"
+                value="{{ filters.min_hoa if filters.min_hoa is not none else '' }}"
+                {{ 'disabled' if filters.no_hoa }}>
+              <input type="number" name="max_hoa" min="0" placeholder="max"
+                class="hoa-input"
+                value="{{ filters.max_hoa if filters.max_hoa is not none else '' }}"
+                {{ 'disabled' if filters.no_hoa }}>
+            </div>
+            <label style="display:flex;align-items:center;gap:16px;cursor:pointer;font-size:0.85rem;color:#666">
               <input type="checkbox" name="no_hoa" value="1" id="no-hoa-cb"
-                onchange="onNoHoaChange(this)"
+                onchange="onNoHoaChange(this)" style="width:auto;margin:0"
                 {{ 'checked' if filters.no_hoa }}>
               No HOA
             </label>
@@ -373,7 +375,16 @@
           <input type="checkbox" name="hide_ghetto" value="1"
             {{ 'checked' if filters.hide_ghetto }}>
           Hide low-income areas
-          <span style="color:#888;font-size:0.8rem">(income &lt;$50k or poverty &gt;20% &mdash; {{ ghetto_count }} properties)</span>
+          <span style="color:#888;font-size:0.8rem">(income &lt;$60k or poverty &gt;15% &mdash; {{ ghetto_count }} properties)</span>
+        </label>
+      </div>
+      <div class="filter-row" style="margin-top:0.25rem">
+        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.9rem">
+          <input type="hidden" name="hide_few_photos" value="0">
+          <input type="checkbox" name="hide_few_photos" value="1"
+            {{ 'checked' if filters.hide_few_photos }}>
+          Hide properties with few photos
+          <span style="color:#888;font-size:0.8rem">(&lt;5 photos &mdash; {{ few_photos_count }} properties)</span>
         </label>
       </div>
 

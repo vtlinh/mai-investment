@@ -20,8 +20,11 @@
           {%- if p.unit_breakdown %} · {{ p.unit_breakdown | join(", ") }}{% endif %}
         </div>
         {% endif %}
-        {% if p.is_low_income %}
-        <div class="tag-low-income">Low income area</div>
+        {% if p.is_low_income or (p.hoa_fee and p.hoa_fee > 0) %}
+        <div>
+          {% if p.is_low_income %}<span class="tag-low-income">Low income area</span>{% endif %}
+          {% if p.hoa_fee and p.hoa_fee > 0 %}<span class="tag-has-hoa">Has HOA</span>{% endif %}
+        </div>
         {% endif %}
       </a>
     </div>

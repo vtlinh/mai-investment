@@ -233,6 +233,7 @@ def parse_filters(args):
         "q":              (args.get("q") or "").strip(),
         "no_rent_info":   args.get("no_rent_info") == "1",
         "hide_ghetto":    "1" in args.getlist("hide_ghetto") if "hide_ghetto" in args else True,
+        "hide_few_photos": "1" in args.getlist("hide_few_photos") if "hide_few_photos" in args else True,
     }
 
 
@@ -240,6 +241,11 @@ def build_where(filters):
     """Compose WHERE clause + bound params from a parsed filters dict."""
     clauses = ["p.is_active=1", "p.is_pending=0", "p.is_contingent=0",
                "p.address_line IS NOT NULL", "TRIM(p.address_line) != ''"]
+    if filters.get("hide_few_photos"):
+        clauses.append(
+            "(json_extract(p.extra_info, '$.photo_count') IS NULL "
+            "OR json_extract(p.extra_info, '$.photo_count') >= 5)"
+        )
     params = []
     if filters["property_types"]:
         ph = ",".join("?" * len(filters["property_types"]))
@@ -309,7 +315,7 @@ def filter_querystring(filters):
         if k == "property_types":
             for t in v:
                 parts.append(("property_type", t))
-        elif k in ("no_rent_info", "hide_ghetto", "no_hoa"):
+        elif k in ("no_rent_info", "hide_ghetto", "hide_few_photos", "no_hoa"):
             if v:
                 parts.append((k, "1"))
         elif v not in (None, "", 0):
@@ -612,6 +618,12 @@ def index():
                      OR poverty_rate > 0.15))
               )"""
     ).fetchone()[0]
+    few_photos_count = con.execute(
+        """SELECT COUNT(*) FROM cashflow_analysis c JOIN properties p USING(property_id)
+            WHERE p.is_active=1 AND p.is_pending=0 AND p.is_contingent=0
+              AND p.address_line IS NOT NULL AND TRIM(p.address_line) != ''
+              AND json_extract(p.extra_info, '$.photo_count') < 5"""
+    ).fetchone()[0]
     con.close()
     if page > pages and total > 0:
         abort(404)
@@ -641,6 +653,7 @@ def index():
         sort_qs=f"sort={sort[0]}&dir={sort[1].lower()}",
         no_rent_count=no_rent_count,
         ghetto_count=ghetto_count,
+        few_photos_count=few_photos_count,
     )
 
 

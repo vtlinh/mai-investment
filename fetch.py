@@ -17,6 +17,7 @@ Multi-family unit detection uses a signal chain (cheapest signals first):
 Set RAPIDAPI_KEY in the environment before running.
 """
 
+import argparse
 import json
 import os
 import re
@@ -106,8 +107,7 @@ CREATE TABLE IF NOT EXISTS properties (
     is_contingent       INTEGER
 );
 
-DROP TABLE IF EXISTS rent_comps;
-CREATE TABLE rent_comps (
+CREATE TABLE IF NOT EXISTS rent_comps (
     city           TEXT,
     bedrooms       INTEGER NOT NULL,
     baths          REAL NOT NULL,
@@ -480,20 +480,25 @@ def fetch_detail(api_key, property_id):
 HOA_PRONE_TYPES = {"condos", "townhomes", "coop"}
 
 
-def enrich_pending_details(con, api_key):
+def enrich_pending_details(con, api_key, refresh_existing=False):
     """Call the detail endpoint for every active for-sale listing that we
     haven't already detailed, plus HOA-prone types that were previously
     short-circuited and still have hoa_fee NULL. Multi-family rows get unit
     breakdowns; all rows get source_listing_status and hoa_fee.
     """
+    where_extra = ""
+    if refresh_existing:
+        where_extra = (
+            " OR (hoa_fee IS NULL AND property_type IN "
+            "('condos','townhomes','coop'))"
+        )
     pending = con.execute(
-        """
+        f"""
         SELECT property_id, property_type, sub_type, bedrooms,
                baths_full, baths_total
         FROM properties
         WHERE is_active=1 AND status='for_sale'
-          AND (detail_fetched_at IS NULL
-               OR (hoa_fee IS NULL AND property_type IN ('condos','townhomes','coop')))
+          AND (detail_fetched_at IS NULL{where_extra})
         """
     ).fetchall()
 
@@ -533,6 +538,9 @@ def enrich_pending_details(con, api_key):
             {**fields, "detail_fetched_at": now, "property_id": row_d["property_id"]},
         )
         enriched += 1
+        if enriched % 50 == 0:
+            con.commit()
+    con.commit()
     return enriched
 
 
@@ -587,6 +595,16 @@ def build_rent_comps(con):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Cap total properties upserted across all counties")
+    parser.add_argument("--per-county-limit", type=int, default=None,
+                        help="Cap per-county fetch size (overrides MAX_PER_QUERY)")
+    parser.add_argument("--refresh-detail", action="store_true",
+                        help="Re-fetch detail for rows missing hoa_fee (condos/townhomes/coop) "
+                             "even if detail_fetched_at is already set")
+    args = parser.parse_args()
+
     api_key = os.environ.get("RAPIDAPI_KEY")
     if not api_key:
         raise SystemExit("RAPIDAPI_KEY environment variable is required")
@@ -597,22 +615,43 @@ def main():
     migrate(con)
 
     total_inserted = 0
-    with con:
-        # Mark every row stale; UPSERTs below re-flag seen rows as active.
-        con.execute("UPDATE properties SET is_active=0")
+    # Mark every row stale; UPSERTs below re-flag seen rows as active.
+    con.execute("UPDATE properties SET is_active=0")
+    con.commit()
 
-        for county, state in COUNTIES:
-            homes = fetch_query(api_key, county, state, STATUSES, MAX_PER_QUERY)
-            for home in homes:
-                row = flatten(home)
-                if not row["property_id"]:
-                    continue
-                con.execute(UPSERT, row)
-                total_inserted += 1
-            print(f"  {county} County, {state}: {len(homes)} rows")
+    def ingest(homes):
+        nonlocal total_inserted
+        added = 0
+        for home in homes:
+            row = flatten(home)
+            if not row["property_id"]:
+                continue
+            con.execute(UPSERT, row)
+            total_inserted += 1
+            added += 1
+            if args.limit is not None and total_inserted >= args.limit:
+                return added, True
+        return added, False
 
-        enriched = enrich_pending_details(con, api_key)
-        comp_rows = build_rent_comps(con)
+    county_cap = args.per_county_limit if args.per_county_limit is not None else MAX_PER_QUERY
+    stop = False
+    for county, state in COUNTIES:
+        if stop:
+            break
+        remaining_total = (args.limit - total_inserted) if args.limit is not None else county_cap
+        remaining = min(remaining_total, county_cap)
+        if remaining <= 0:
+            break
+        homes = fetch_query(api_key, county, state, STATUSES, remaining)
+        _, stop = ingest(homes)
+        con.commit()
+        print(f"  {county} County, {state}: {len(homes)} rows")
+
+    enriched = enrich_pending_details(con, api_key,
+                                      refresh_existing=args.refresh_detail)
+    con.commit()
+    comp_rows = build_rent_comps(con)
+    con.commit()
 
     active = con.execute("SELECT COUNT(*) FROM properties WHERE is_active=1").fetchone()[0]
     con.close()
