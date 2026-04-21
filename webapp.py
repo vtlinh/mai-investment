@@ -506,7 +506,18 @@ def fetch_page(con, page, filters, cfg, sort):
                        p.area_sqft, p.year_built, p.num_units, p.url, p.hoa_fee,
                        p.beds_per_unit_json, p.baths_per_unit_json,
                        c.annual_income, c.mortgage, c.expenses, c.cash_flow,
-                       c.cash_on_cash_return
+                       c.cash_on_cash_return,
+                       CASE WHEN (
+                         (p.tract_fips IS NOT NULL AND p.tract_fips IN (
+                           SELECT tract_fips FROM tract_demographics
+                           WHERE median_household_income < 50000
+                              OR (median_household_income < 70000 AND poverty_rate > 0.15)))
+                         OR
+                         (p.tract_fips IS NULL AND p.postal_code IN (
+                           SELECT postal_code FROM zip_demographics
+                           WHERE median_household_income < 50000
+                              OR (median_household_income < 70000 AND poverty_rate > 0.15)))
+                       ) THEN 1 ELSE 0 END AS is_low_income
                 FROM cashflow_analysis c JOIN properties p USING(property_id)
                 WHERE {where}
                 ORDER BY {sort_sql} {sort_dir}, p.property_id ASC

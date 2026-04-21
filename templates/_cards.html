@@ -20,6 +20,9 @@
           {%- if p.unit_breakdown %} · {{ p.unit_breakdown | join(", ") }}{% endif %}
         </div>
         {% endif %}
+        {% if p.is_low_income %}
+        <div class="tag-low-income">Low income area</div>
+        {% endif %}
       </a>
     </div>
     <div class="stats">
