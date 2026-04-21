@@ -227,7 +227,7 @@ def parse_filters(args):
         "max_sqft":       _int("max_sqft"),
         "q":              (args.get("q") or "").strip(),
         "no_rent_info":   args.get("no_rent_info") == "1",
-        "hide_ghetto":    args.get("hide_ghetto", "1") != "0",
+        "hide_ghetto":    "1" in args.getlist("hide_ghetto") if "hide_ghetto" in args else True,
     }
 
 
