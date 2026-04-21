@@ -265,9 +265,10 @@ def build_where(filters):
         like = f"%{filters['q']}%"
         clauses.append(
             "(p.address_line LIKE ? OR p.city LIKE ? OR p.postal_code LIKE ? "
-            "OR p.state LIKE ? OR p.agent_name LIKE ? OR p.office_name LIKE ?)"
+            "OR p.state LIKE ? OR p.agent_name LIKE ? OR p.office_name LIKE ? "
+            "OR (p.address_line || ', ' || p.city || ', ' || p.state || ' ' || p.postal_code) LIKE ?)"
         )
-        params.extend([like] * 6)
+        params.extend([like] * 7)
     if filters.get("hide_ghetto"):
         clauses.append(
             # Use tract-level demographics when available (more granular),
