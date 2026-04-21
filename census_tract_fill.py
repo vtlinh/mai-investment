@@ -38,7 +38,7 @@ CENSUS_URL  = "https://api.census.gov/data/2023/acs/acs5"
 FCC_URL     = "https://geo.fcc.gov/api/census/block/find"
 
 # Deprivation thresholds (same logic used in webapp.py build_where).
-LOW_INCOME_THRESHOLD = 70_000   # flag below this income
+LOW_INCOME_THRESHOLD = 60_000   # flag below this income
 HIGH_POVERTY_THRESHOLD = 0.15   # flag above this poverty rate
 
 
