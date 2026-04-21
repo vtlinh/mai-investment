@@ -39,8 +39,12 @@ DB_PATH = Path(os.environ.get("DB_PATH", Path(__file__).parent / "properties.db"
 PAGE_SIZE = 200
 
 COUNTIES = [
-    ("Essex",  "NJ"),
-    ("Bergen", "NJ"),
+    ("Essex",   "NJ"),
+    ("Bergen",  "NJ"),
+    ("Hudson",  "NJ"),
+    ("Passaic", "NJ"),
+    ("Morris",  "NJ"),
+    ("Union",   "NJ"),
 ]
 STATUSES = ["for_sale", "ready_to_build", "for_rent"]
 MAX_PER_QUERY = 10000
@@ -604,6 +608,11 @@ def main():
     parser.add_argument("--refresh-detail", action="store_true",
                         help="Re-fetch detail for rows missing hoa_fee (condos/townhomes/coop) "
                              "even if detail_fetched_at is already set")
+    parser.add_argument("--skip-detail", action="store_true",
+                        help="Skip detail enrichment entirely")
+    parser.add_argument("--counties", type=str, default=None,
+                        help="Comma-separated county names to fetch (subset of COUNTIES). "
+                             "When set, properties outside these counties keep their is_active flag.")
     args = parser.parse_args()
 
     api_key = os.environ.get("RAPIDAPI_KEY")
@@ -615,10 +624,21 @@ def main():
     con.executescript(SCHEMA)
     migrate(con)
 
+    if args.counties:
+        wanted = {c.strip().lower() for c in args.counties.split(",") if c.strip()}
+        counties_to_fetch = [(c, s) for c, s in COUNTIES if c.lower() in wanted]
+        if not counties_to_fetch:
+            raise SystemExit(f"No counties from --counties matched COUNTIES: {args.counties}")
+    else:
+        counties_to_fetch = COUNTIES
+
     total_inserted = 0
-    # Mark every row stale; UPSERTs below re-flag seen rows as active.
-    con.execute("UPDATE properties SET is_active=0")
-    con.commit()
+    # When fetching the full COUNTIES list, mark every row stale so stale
+    # listings get dropped. For a --counties subset, skip this: we'd mark
+    # counties we're not refetching as inactive forever.
+    if not args.counties:
+        con.execute("UPDATE properties SET is_active=0")
+        con.commit()
 
     def ingest(homes):
         nonlocal total_inserted
@@ -636,7 +656,7 @@ def main():
 
     county_cap = args.per_county_limit if args.per_county_limit is not None else MAX_PER_QUERY
     stop = False
-    for county, state in COUNTIES:
+    for county, state in counties_to_fetch:
         if stop:
             break
         remaining_total = (args.limit - total_inserted) if args.limit is not None else county_cap
@@ -648,9 +668,13 @@ def main():
         con.commit()
         print(f"  {county} County, {state}: {len(homes)} rows")
 
-    enriched = enrich_pending_details(con, api_key,
-                                      refresh_existing=args.refresh_detail)
-    con.commit()
+    if args.skip_detail:
+        enriched = 0
+        print("  (--skip-detail: skipping detail enrichment)")
+    else:
+        enriched = enrich_pending_details(con, api_key,
+                                          refresh_existing=args.refresh_detail)
+        con.commit()
     comp_rows = build_rent_comps(con)
     con.commit()
 
